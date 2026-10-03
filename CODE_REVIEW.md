@@ -42,6 +42,15 @@ Isso fecha a janela de duas requisições iguais chegando juntas.
 
 **Testes no comportamento.** Você testou débito, replay e concorrência. Isso vale mais do que testar detalhe interno.
 
+Se quiser ver essa organização de camadas em vídeo:
+
+- [Intensivão de Clean Architecture e TypeScript](https://www.youtube.com/watch?v=yLPxkIxbNDg)
+- [TDD e Clean Architecture na prática com Node.js](https://www.youtube.com/watch?v=t9ozcycl7YQ)
+
+Para transação de banco (tudo ou nada):
+
+- [Akitando: discutindo sobre banco de dados](https://www.youtube.com/watch?v=Bfm3Ms2cTg0&t=1905s) (começa na parte de proteção e consistência)
+
 ---
 
 ## Pontos para pensar
@@ -61,6 +70,14 @@ Aí o cliente não escolhe a “prova” da requisição.
 
 Isso é o ponto mais importante deste review.
 
+Para estudar isso com calma:
+
+- [Idempotência: como a API evita requisição duplicada](https://www.youtube.com/watch?v=kPVyD517YiY) (curto)
+- [Idempotência em APIs e mensageria](https://www.youtube.com/watch?v=fcRik4_Zuw8)
+- [Design de APIs resilientes: técnicas de idempotência](https://www.youtube.com/watch?v=bnRZTi3C_JM)
+
+A ideia é sempre a mesma: a mesma requisição pode chegar duas vezes. O servidor é quem decide o que já foi processado.
+
 ---
 
 ### 2. Sem `API_KEY`, a API fica aberta
@@ -75,6 +92,11 @@ Qualquer pessoa que alcançar a API consegue mexer em qualquer carteira.
 
 Para um teste técnico local, não é o fim do mundo.
 Se um dia isso for para um servidor na internet, a chave precisa estar ligada.
+
+Para ver como o NestJS organiza API, DTO e validação:
+
+- [Construindo aplicações com Nest.js e Clean Architecture](https://www.youtube.com/watch?v=CpBqpsINims)
+- [Intensivão Nest.js 10](https://www.youtube.com/watch?v=74Rks96yaAY) (tem ValidationPipe na prática)
 
 ---
 
@@ -102,6 +124,12 @@ O padrão mais simples de outbox é:
 O README já avisa que a publicação é “pelo menos uma vez”.
 Isso está certo. Consumidor precisa aceitar mensagem repetida. Você já pensou nisso.
 
+Vídeo direto no que você implementou:
+
+- [Padrões de resiliência: Transactional Outbox](https://www.youtube.com/watch?v=Fl_zXWvK2F8)
+
+Ele mostra o ponto-chave: primeiro grava no banco, depois publica. Se a fila cair, a mensagem continua na tabela.
+
 ---
 
 ### 4. Erro escondido no worker e no consumer
@@ -119,6 +147,10 @@ Um `console.error` já ajuda. Depois entra log estruturado.
 
 No consumer, `JSON.parse` sem `try/catch` também pode derrubar o ciclo inteiro se o corpo da mensagem for inválido.
 
+Para entender por que esconder erro é perigoso:
+
+- [Error handling no JavaScript: let it crash e graceful shutdown](https://www.youtube.com/watch?v=iC_tKAyLeag)
+
 ---
 
 ### 5. A validação HTTP está duas vezes
@@ -130,6 +162,8 @@ O controller chama `plainToInstance` e `validate` de novo.
 
 Uma das duas basta.
 Menos código, mesmo resultado, mais fácil de ler.
+
+- [Intensivão Nest.js: do básico ao avançado](https://www.youtube.com/watch?v=PHIMN85trgk) (DTO e `class-validator`)
 
 ---
 
@@ -183,3 +217,24 @@ O ajuste que mais muda o risco é o **hash calculado no servidor**.
 O resto é melhoria de clareza, operação e regra de negócio.
 
 Pode responder neste PR com dúvida. Review é conversa, não nota.
+
+---
+
+## Playlist rápida (tudo em português)
+
+Assista nesta ordem, se tiver pouco tempo:
+
+1. [Idempotência em 1 minuto](https://www.youtube.com/watch?v=kPVyD517YiY)
+2. [Transactional Outbox](https://www.youtube.com/watch?v=Fl_zXWvK2F8)
+3. [Clean Architecture com TypeScript](https://www.youtube.com/watch?v=yLPxkIxbNDg)
+4. [Nest.js e Clean Architecture](https://www.youtube.com/watch?v=CpBqpsINims)
+5. [Transação e consistência no banco](https://www.youtube.com/watch?v=Bfm3Ms2cTg0&t=1905s)
+6. [Error handling no JavaScript](https://www.youtube.com/watch?v=iC_tKAyLeag)
+7. [SOLID e design de software na prática](https://www.youtube.com/watch?v=4oVByCJJkRI)
+
+Boa prática simples, sem vídeo:
+
+- Quem manda o pedido **não** escolhe a prova do pedido. O servidor calcula o hash.
+- Erro some? Então o bug também some da vista. Loga.
+- Validação num lugar só.
+- Dinheiro: `decimal` ou centavos. Nunca `number` solto.
