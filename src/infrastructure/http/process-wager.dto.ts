@@ -1,0 +1,46 @@
+import { Type } from 'class-transformer';
+import { IsIn, IsNotEmpty, IsString, Matches, ValidateNested } from 'class-validator';
+import type { WagerKind } from '../../application/use-cases/process-wager.use-case.js';
+
+export class MoneyDto {
+  @IsString()
+  @Matches(/^-?\d+(\.\d{1,2})?$/)
+  public amount!: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/)
+  public currency!: string;
+}
+
+export class ProcessWagerDto {
+  @IsString()
+  @IsNotEmpty()
+  public externalTransactionId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  public idempotencyKey!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  public payloadHash!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  public walletId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  public roundId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  public gameId!: string;
+
+  @IsIn(['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'] satisfies WagerKind[])
+  public kind!: WagerKind;
+
+  @ValidateNested()
+  @Type(() => MoneyDto)
+  public money!: MoneyDto;
+}
