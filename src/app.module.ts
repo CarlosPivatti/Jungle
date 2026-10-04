@@ -13,17 +13,23 @@ import { HealthController } from './infrastructure/http/health.controller.js';
 import { ApiKeyGuard } from './infrastructure/http/api-key.guard.js';
 import { PostgresInboxRepository } from './infrastructure/database/postgres-inbox.repository.js';
 import { ConsumeInboxUseCase } from './application/use-cases/consume-inbox.use-case.js';
-import { NoopEventHandler } from './infrastructure/queue/noop-event.handler.js';
+import { WagerEventHandler } from './infrastructure/queue/wager-event.handler.js';
+import { PendingReferenceWorker } from './infrastructure/queue/pending-reference.worker.js';
 import { SqsInboxConsumer } from './infrastructure/queue/sqs-inbox.consumer.js';
+import { WalletController } from './infrastructure/http/wallet.controller.js';
+import { MetricsController } from './infrastructure/observability/metrics.controller.js';
+import { MetricsRegistry } from './infrastructure/observability/metrics.registry.js';
+import { DemoController } from './infrastructure/http/demo.controller.js';
 
 @Module({
-  controllers: [ProcessWagerController, HealthController],
+  controllers: [ProcessWagerController, HealthController, WalletController, MetricsController, DemoController],
   providers: [
     { provide: APP_GUARD, useClass: ApiKeyGuard },
+    MetricsRegistry,
     {
       provide: ProcessWagerUseCase,
-      inject: [PostgresWalletUnitOfWork],
-      useFactory: (unitOfWork: PostgresWalletUnitOfWork) => new ProcessWagerUseCase(unitOfWork),
+      inject: [PostgresWalletUnitOfWork, MetricsRegistry],
+      useFactory: (unitOfWork: PostgresWalletUnitOfWork, metrics: MetricsRegistry) => new ProcessWagerUseCase(unitOfWork, metrics),
     },
     {
       provide: Pool,
@@ -68,16 +74,25 @@ import { SqsInboxConsumer } from './infrastructure/queue/sqs-inbox.consumer.js';
       useFactory: (useCase: PublishOutboxUseCase) => new OutboxWorker(useCase),
     },
     {
+      provide: PendingReferenceWorker,
+      inject: [Pool, ProcessWagerUseCase],
+      useFactory: (pool: Pool, useCase: ProcessWagerUseCase) => new PendingReferenceWorker(pool, useCase),
+    },
+    {
       provide: PostgresInboxRepository,
       inject: [Pool],
       useFactory: (pool: Pool) => new PostgresInboxRepository(pool),
     },
     {
       provide: ConsumeInboxUseCase,
-      inject: [PostgresInboxRepository, NoopEventHandler],
-      useFactory: (repository: PostgresInboxRepository, handler: NoopEventHandler) => new ConsumeInboxUseCase(repository, handler),
+      inject: [PostgresInboxRepository, WagerEventHandler],
+      useFactory: (repository: PostgresInboxRepository, handler: WagerEventHandler) => new ConsumeInboxUseCase(repository, handler),
     },
-    NoopEventHandler,
+    {
+      provide: WagerEventHandler,
+      inject: [MetricsRegistry],
+      useFactory: (metrics: MetricsRegistry) => new WagerEventHandler(metrics),
+    },
     {
       provide: SqsInboxConsumer,
       inject: [SQSClient, ConsumeInboxUseCase],

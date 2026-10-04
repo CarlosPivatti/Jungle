@@ -53,4 +53,29 @@ describe('wager HTTP contract', () => {
     });
     expect(response.status).toBe(400);
   });
+
+  it('maps unique constraint violations to conflict', async () => {
+    const duplicateUseCase = { execute: async () => {
+      const error = new Error('duplicate') as Error & { code?: string };
+      error.code = '23505';
+      throw error;
+    } };
+
+    const duplicateModule = await Test.createTestingModule({
+      controllers: [ProcessWagerController],
+      providers: [
+        { provide: ProcessWagerUseCase, useValue: duplicateUseCase },
+        { provide: ProcessWagerController, inject: [ProcessWagerUseCase], useFactory: (useCase: ProcessWagerUseCase) => new ProcessWagerController(useCase) },
+      ],
+    }).compile();
+
+    const duplicateApp = duplicateModule.createNestApplication();
+    duplicateApp.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+    await duplicateApp.init();
+
+    const response = await request(duplicateApp.getHttpServer()).post('/wagers').send(validBody);
+    expect(response.status).toBe(409);
+
+    await duplicateApp.close();
+  });
 });

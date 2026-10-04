@@ -10,13 +10,7 @@ export class SqsEventPublisher implements IntegrationEventPublisher {
   public async publish(message: OutboxMessage): Promise<void> {
     await this.client.send(new SendMessageCommand({
       QueueUrl: this.queueUrl,
-      MessageBody: JSON.stringify({
-        id: message.id,
-        transactionId: message.transactionId,
-        walletId: message.walletId,
-        eventType: message.eventType,
-        payload: message.payload,
-      }),
+      MessageBody: JSON.stringify(message.payload),
       MessageAttributes: {
         eventType: { DataType: 'String', StringValue: message.eventType },
         transactionId: { DataType: 'String', StringValue: message.transactionId },

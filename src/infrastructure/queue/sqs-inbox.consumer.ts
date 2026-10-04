@@ -2,6 +2,7 @@ import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk
 import { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import type { ConsumeInboxUseCase } from '../../application/use-cases/consume-inbox.use-case.js';
 import type { InboxEvent } from '../../application/ports/inbox.port.js';
+import { logStructured } from '../observability/structured-logger.js';
 
 interface SqsMessage {
   MessageId?: string;
@@ -31,14 +32,21 @@ export class SqsInboxConsumer implements OnModuleInit, OnModuleDestroy {
     let processed = 0;
     for (const message of (result.Messages ?? []) as SqsMessage[]) {
       if (!message.Body || !message.ReceiptHandle) continue;
-      const event = JSON.parse(message.Body) as InboxEvent;
-      await this.consumeInbox.execute({
-        eventId: event.eventId ?? message.MessageId ?? message.ReceiptHandle,
-        eventType: event.eventType,
-        payload: event.payload,
-      });
-      await this.client.send(new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: message.ReceiptHandle }));
-      processed += 1;
+      try {
+        const event = JSON.parse(message.Body) as InboxEvent & { data?: Record<string, unknown> };
+        await this.consumeInbox.execute({
+          eventId: event.eventId ?? message.MessageId ?? message.ReceiptHandle,
+          eventType: event.eventType,
+          payload: event.data ?? event.payload,
+        });
+        await this.client.send(new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: message.ReceiptHandle }));
+        processed += 1;
+      } catch (error) {
+        logStructured('error', 'inbox_message_failed', {
+          messageId: message.MessageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     return processed;
   }

@@ -1,0 +1,7 @@
+ALTER TABLE wager_transactions
+  ADD COLUMN IF NOT EXISTS failure_code TEXT,
+  ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+ALTER TABLE outbox_messages
+  DROP CONSTRAINT IF EXISTS outbox_transaction_unique;

@@ -54,4 +54,18 @@ describe('ProcessWagerUseCase', () => {
     await harness.useCase.execute(input);
     await expect(harness.useCase.execute({ ...input, payloadHash: 'different' })).rejects.toThrow('IDEMPOTENCY_PAYLOAD_MISMATCH');
   });
+
+  it('records LOSS without changing the wallet balance', async () => {
+    const harness = createHarness();
+    const result = await harness.useCase.execute({ ...input, kind: 'LOSS' });
+
+    expect(result.balance.amount).toBe('100.00');
+    expect(harness.wallet.balance.toJSON().amount).toBe('100.00');
+    expect(harness.ledger).toEqual([expect.objectContaining({
+      kind: 'LOSS',
+      amount: '0.00',
+      balanceBefore: { amount: '100.00', currency: 'BRL' },
+      balanceAfter: { amount: '100.00', currency: 'BRL' },
+    })]);
+  });
 });

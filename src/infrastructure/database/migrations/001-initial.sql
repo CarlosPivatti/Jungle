@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE wallets (
   id UUID PRIMARY KEY,
   player_id UUID NOT NULL,

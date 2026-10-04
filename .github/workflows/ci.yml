@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: jungle
+          POSTGRES_USER: jungle
+          POSTGRES_PASSWORD: jungle
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jungle -d jungle"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://jungle:jungle@localhost:5432/jungle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run typecheck
+      - run: bun run test:bun
+      - run: bun run db:migrate:bun
+      - run: bun run test:integration

@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
+    "start:bun": "bun run src/main.ts",
     "db:migrate": "tsx src/infrastructure/database/migrate.ts",
+    "db:migrate:bun": "bun run src/infrastructure/database/migrate.ts",
     "test": "vitest run tests --exclude tests/integration/**",
+    "test:bun": "bunx vitest run tests --exclude tests/integration/**",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

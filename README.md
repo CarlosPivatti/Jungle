@@ -26,6 +26,14 @@ npm run typecheck
 npm test
 ```
 
+O projeto também pode ser executado com Bun 1.x:
+
+```bash
+bun install
+bun run typecheck
+bun run test:bun
+```
+
 Os testes unitários não dependem de Docker.
 
 Com o PostgreSQL do Docker em execução, rode também o teste de concorrência:
@@ -91,7 +99,16 @@ curl -X POST http://localhost:3000/wagers \
 
 Valores aceitos para `kind`: `BET`, `WIN`, `LOSS`, `REFUND` e `ROLLBACK`.
 
-Health checks: `GET /healthz` confirma que o processo está vivo; `GET /readyz` confirma que o PostgreSQL responde.
+Endpoints obrigatórios adicionais:
+
+- `POST /wallets`
+- `GET /wallets/:walletId`
+- `GET /wallets/:walletId/ledger`
+- `GET /wagering/transactions/:transactionId`
+- `GET /providers/:providerId/wagering/transactions/:externalTransactionId`
+- `POST /wallets/:walletId/reconciliation`
+
+Health checks: `GET /health/live` confirma que o processo está vivo; `GET /health/ready` confirma PostgreSQL e SQS. Os aliases legados `/healthz` e `/readyz` continuam disponíveis.
 
 ## Decisões principais
 
@@ -100,6 +117,10 @@ Health checks: `GET /healthz` confirma que o processo está vivo; `GET /readyz` 
 - `SELECT FOR UPDATE`: serializa operações da mesma carteira e permite concorrência entre carteiras diferentes.
 - Outbox transacional: o evento só é criado se a atualização financeira também for confirmada.
 - Inbox idempotente: eventos repetidos não executam o handler novamente.
+- `LOSS` gera lançamento de auditoria sem alterar o saldo.
+- `REFUND` exige referência para uma `BET`; `ROLLBACK` exige referência para
+  `BET`, `WIN` ou `REFUND`. Referências ausentes ficam em `PENDING_REFERENCE`
+  e são reprocessadas com backoff.
 
 ## Estrutura
 
@@ -121,10 +142,10 @@ Health checks: `GET /healthz` confirma que o processo está vivo; `GET /readyz` 
 
 ## Escopo e limitações
 
-Este repositório é uma solução de teste técnico local. O handler de Inbox ainda é um placeholder, e o SQS configurado no Docker é o LocalStack. Em produção, seriam necessários handlers de negócio reais, credenciais gerenciadas, logs estruturados, métricas, tracing, rate limiting e pipeline CI/CD.
+Este repositório é uma solução de teste técnico local. O SQS configurado no Docker é o LocalStack. Em produção, devem ser usados credenciais gerenciadas, métricas e tracing centralizados, além de políticas de segurança e rate limiting adequadas.
 
 A implementação mantém a infraestrutura fora do domínio. `PostgresWalletUnitOfWork` usa `SELECT FOR UPDATE`, `BEGIN/COMMIT/ROLLBACK`, constraint única para `idempotency_key` e gravação de wallet, ledger e outbox na mesma transação.
 
 O `PostgresOutboxRepository` reserva lotes com `FOR UPDATE SKIP LOCKED`. A publicação é at-least-once: se a publicação ocorrer e o commit falhar, a mensagem poderá ser republicada. Consumidores devem tratar o `transactionId` como chave idempotente.
 
-O contrato de Inbox grava cada `eventId` uma única vez em `inbox_messages` antes de chamar o handler. Eventos duplicados são ignorados sem executar o handler novamente.
+O contrato de Inbox grava cada `eventId` uma única vez em `inbox_messages` antes de chamar o handler. Eventos duplicados são ignorados sem executar o handler novamente. Falhas não são confirmadas no SQS; a fila aplica retry e encaminha mensagens excedentes para a DLQ configurada no LocalStack.

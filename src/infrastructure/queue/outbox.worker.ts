@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PublishOutboxUseCase } from '../../application/use-cases/publish-outbox.use-case.js';
+import { logStructured } from '../observability/structured-logger.js';
 
 @Injectable()
 export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
@@ -17,7 +18,11 @@ export class OutboxWorker implements OnModuleInit, OnModuleDestroy {
   public start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      void this.runOnce().catch(() => undefined);
+      void this.runOnce().catch((error: unknown) => {
+        logStructured('error', 'outbox_publish_failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }, this.pollIntervalMs);
   }
 

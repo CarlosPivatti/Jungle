@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsString, Matches, ValidateNested } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, Matches, ValidateNested } from 'class-validator';
 import type { WagerKind } from '../../application/use-cases/process-wager.use-case.js';
 
 export class MoneyDto {
@@ -13,6 +13,11 @@ export class MoneyDto {
 }
 
 export class ProcessWagerDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  public providerId?: string;
+
   @IsString()
   @IsNotEmpty()
   public externalTransactionId!: string;
@@ -39,6 +44,11 @@ export class ProcessWagerDto {
 
   @IsIn(['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'] satisfies WagerKind[])
   public kind!: WagerKind;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  public referenceExternalTransactionId?: string;
 
   @ValidateNested()
   @Type(() => MoneyDto)
