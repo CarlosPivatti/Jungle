@@ -30,6 +30,6 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck:bun
-      - run: bun test
-      - run: bun run db:migrate:bun
+      - run: bun run db:migrate
+      - run: bun run test
       - run: bun run test:integration
