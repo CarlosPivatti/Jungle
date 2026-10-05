@@ -11,6 +11,10 @@ describe('Money', () => {
   it('rejects more than two decimal places', () => {
     expect(() => Money.from({ amount: '1.001', currency: 'BRL' })).toThrow('Invalid decimal format');
   });
+
+  it('rejects negative amounts', () => {
+    expect(() => Money.from({ amount: '-1.00', currency: 'BRL' })).toThrow('Invalid decimal format');
+  });
 });
 
 describe('Wallet', () => {

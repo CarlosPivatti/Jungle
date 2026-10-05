@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.1.38",
   "scripts": {
-    "start": "tsx src/main.ts",
-    "start:bun": "bun run src/main.ts",
-    "db:migrate": "tsx src/infrastructure/database/migrate.ts",
-    "db:migrate:bun": "bun run src/infrastructure/database/migrate.ts",
-    "test": "vitest run tests --exclude tests/integration/**",
-    "test:bun": "bunx vitest run tests --exclude tests/integration/**",
-    "test:integration": "vitest run tests/integration",
+    "start": "bun run src/main.ts",
+    "start:node": "tsx src/main.ts",
+    "db:migrate": "bun run src/infrastructure/database/migrate.ts",
+    "db:migrate:node": "tsx src/infrastructure/database/migrate.ts",
+    "test": "bunx vitest run tests --exclude tests/integration/**",
+    "test:node": "vitest run tests --exclude tests/integration/**",
+    "test:integration": "bunx vitest run tests/integration",
+    "test:integration:process": "bunx vitest run tests/integration/three-processes.integration.spec.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:bun": "bunx tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.709.0",
@@ -24,17 +27,18 @@
     "decimal.js": "^10.4.3",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "typeorm": "^0.3.31"
   },
   "devDependencies": {
+    "@nestjs/testing": "^10.4.15",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "@types/supertest": "^6.0.2",
     "@types/pg": "^8.11.10",
-    "@nestjs/testing": "^10.4.15",
-    "typescript": "^5.7.0",
-    "tsx": "^4.19.2",
+    "@types/supertest": "^6.0.2",
     "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0",
     "vitest": "^2.1.8"
   }
 }

@@ -13,7 +13,7 @@ export class Money {
 
   public static from({ amount, currency }: MoneyProps): Money {
     if (!currency?.trim()) throw new Error('Currency is required');
-    if (!/^-?\d+(\.\d{1,2})?$/.test(amount)) {
+    if (!/^\d+(\.\d{1,2})?$/.test(amount)) {
       throw new Error(`Invalid decimal format for Money: ${amount}`);
     }
 

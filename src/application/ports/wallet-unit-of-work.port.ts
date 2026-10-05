@@ -36,9 +36,40 @@ export interface WalletTransactionContext {
     balanceBefore: { amount: string; currency: string };
     balanceAfter: { amount: string; currency: string };
   }): Promise<void>;
-  enqueueOutbox(event: { transactionId: string; walletId: string; kind: string }): Promise<void>;
+  enqueueOutbox(event: {
+    transactionId: string;
+    walletId: string;
+    kind: string;
+    status: WagerStatus;
+  }): Promise<void>;
 }
 
 export interface WalletUnitOfWork {
   transactional<T>(work: (context: WalletTransactionContext) => Promise<T>): Promise<T>;
+  recordFailedTransaction?(input: {
+    providerId: string;
+    externalTransactionId: string;
+    idempotencyKey: string;
+    payloadHash: string;
+    walletId: string;
+    roundId: string;
+    gameId: string;
+    kind: string;
+    money: { amount: string; currency: string };
+    referenceExternalTransactionId?: string;
+    failureCode: string;
+  }): Promise<StoredTransaction>;
+  recordRejectedTransaction?(input: {
+    providerId: string;
+    externalTransactionId: string;
+    idempotencyKey: string;
+    payloadHash: string;
+    walletId: string;
+    roundId: string;
+    gameId: string;
+    kind: string;
+    money: { amount: string; currency: string };
+    referenceExternalTransactionId?: string;
+    failureCode: string;
+  }): Promise<StoredTransaction>;
 }

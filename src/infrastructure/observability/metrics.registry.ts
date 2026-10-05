@@ -4,8 +4,16 @@ import { Injectable } from '@nestjs/common';
 export class MetricsRegistry {
   private readonly values = new Map<string, number>();
 
-  public increment(name: string): void {
-    this.values.set(name, (this.values.get(name) ?? 0) + 1);
+  public increment(name: string, labelsOrAmount: Record<string, string> | number = 1, amount = 1): void {
+    const labels = typeof labelsOrAmount === 'number' ? undefined : labelsOrAmount;
+    const value = typeof labelsOrAmount === 'number' ? labelsOrAmount : amount;
+    const key = labels ? `${name}{${Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}="${v}"`).join(',')}}` : name;
+    this.values.set(key, (this.values.get(key) ?? 0) + value);
+  }
+
+  public observe(name: string, value: number, labels?: Record<string, string>): void {
+    this.increment(`${name}_sum`, labels, value);
+    this.increment(`${name}_count`, labels);
   }
 
   public snapshot(): Record<string, number> {

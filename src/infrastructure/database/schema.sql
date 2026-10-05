@@ -22,7 +22,7 @@ CREATE TABLE wager_transactions (
   player_id UUID NOT NULL,
   round_id TEXT NOT NULL,
   game_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK')),
+  kind TEXT NOT NULL CHECK (kind IN ('OPENING', 'BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK')),
   money_amount NUMERIC(18, 2) NOT NULL,
   money_currency CHAR(3) NOT NULL,
   reference_external_transaction_id TEXT,
@@ -34,7 +34,7 @@ CREATE TABLE wager_transactions (
   balance_currency CHAR(3) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT wager_provider_external_unique UNIQUE (provider_id, external_transaction_id),
-  CONSTRAINT wager_reference_unique UNIQUE (provider_id, reference_external_transaction_id)
+  CONSTRAINT wager_reference_unique UNIQUE (provider_id, reference_external_transaction_id, kind)
 );
 
 CREATE TABLE wallet_ledger_entries (
@@ -43,7 +43,7 @@ CREATE TABLE wallet_ledger_entries (
   wallet_id UUID NOT NULL REFERENCES wallets(id),
   amount NUMERIC(18, 2) NOT NULL,
   currency CHAR(3) NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK')),
+  kind TEXT NOT NULL CHECK (kind IN ('CREDIT', 'BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK')),
   balance_before NUMERIC(18, 2) NOT NULL,
   balance_after NUMERIC(18, 2) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

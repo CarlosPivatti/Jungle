@@ -87,9 +87,22 @@ export class DemoController {
   async function showWallet() { if (!walletId) return print('Crie uma carteira primeiro.', true); await call('/wallets/' + walletId); }
   async function showLedger() { if (!walletId) return print('Crie uma carteira primeiro.', true); await call('/wallets/' + walletId + '/ledger'); }
   async function reconcile() { if (!walletId) return print('Crie uma carteira primeiro.', true); await call('/wallets/' + walletId + '/reconciliation', {method:'POST'}); }
+  function canonicalize(value) {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'payloadHash').sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonicalize(item)]));
+    }
+    return value;
+  }
+  async function payloadHash(value) {
+    const bytes = new TextEncoder().encode(JSON.stringify(canonicalize(value)));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
   async function wager(kind) {
     if (!walletId) return print('Crie uma carteira primeiro.', true);
-    lastRequest = { providerId:'demo-provider', externalTransactionId:crypto.randomUUID(), idempotencyKey:crypto.randomUUID(), payloadHash:'demo-payload', walletId, roundId:'demo-round', gameId:'demo-game', kind, money:{amount:'10.00', currency:'BRL'} };
+    lastRequest = { providerId:'demo-provider', externalTransactionId:crypto.randomUUID(), idempotencyKey:crypto.randomUUID(), payloadHash:'', walletId, roundId:'demo-round', gameId:'demo-game', kind, money:{amount:'10.00', currency:'BRL'} };
+    lastRequest.payloadHash = await payloadHash(lastRequest);
     await call('/wagering/transactions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(lastRequest)});
   }
   async function duplicate() {

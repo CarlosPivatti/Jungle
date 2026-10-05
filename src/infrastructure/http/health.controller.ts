@@ -1,12 +1,12 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
-import { Pool } from 'pg';
+import { DataSource } from 'typeorm';
 import { GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { logStructured } from '../observability/structured-logger.js';
 
 @Controller()
 export class HealthController {
   public constructor(
-    @Inject(Pool) private readonly pool: Pool,
+    @Inject(DataSource) private readonly dataSource: DataSource,
     @Inject(SQSClient) private readonly sqs: SQSClient,
   ) {}
 
@@ -25,7 +25,7 @@ export class HealthController {
     let database: 'ok' | 'unavailable' = 'ok';
     let sqs: 'ok' | 'unavailable' = 'ok';
     try {
-      await this.pool.query('SELECT 1');
+      await this.dataSource.query('SELECT 1');
     } catch (error) {
       database = 'unavailable';
       logStructured('error', 'database_readiness_failed', {

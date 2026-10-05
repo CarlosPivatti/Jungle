@@ -4,6 +4,7 @@ export interface OutboxMessage {
   walletId: string;
   eventType: string;
   payload: Record<string, unknown>;
+  createdAt?: Date;
 }
 
 export interface OutboxRepository {

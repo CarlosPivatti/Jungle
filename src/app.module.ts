@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { Pool } from 'pg';
+import { DataSource } from 'typeorm';
 import { ProcessWagerUseCase } from './application/use-cases/process-wager.use-case.js';
 import { PostgresWalletUnitOfWork } from './infrastructure/database/postgres-wallet-unit-of-work.js';
 import { ProcessWagerController } from './infrastructure/http/process-wager.controller.js';
@@ -32,13 +32,21 @@ import { DemoController } from './infrastructure/http/demo.controller.js';
       useFactory: (unitOfWork: PostgresWalletUnitOfWork, metrics: MetricsRegistry) => new ProcessWagerUseCase(unitOfWork, metrics),
     },
     {
-      provide: Pool,
-      useFactory: () => new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://jungle:jungle@localhost:5432/jungle' }),
+      provide: PostgresWalletUnitOfWork,
+      inject: [DataSource],
+      useFactory: (dataSource: DataSource) => new PostgresWalletUnitOfWork(dataSource),
     },
     {
-      provide: PostgresWalletUnitOfWork,
-      inject: [Pool],
-      useFactory: (pool: Pool) => new PostgresWalletUnitOfWork(pool),
+      provide: DataSource,
+      useFactory: async () => {
+        const dataSource = new DataSource({
+          type: 'postgres',
+          url: process.env.DATABASE_URL ?? 'postgresql://jungle:jungle@localhost:5432/jungle',
+          entities: [],
+          migrations: [],
+        });
+        return dataSource.initialize();
+      },
     },
     {
       provide: SQSClient,
@@ -60,13 +68,14 @@ import { DemoController } from './infrastructure/http/demo.controller.js';
     },
     {
       provide: PostgresOutboxRepository,
-      inject: [Pool],
-      useFactory: (pool: Pool) => new PostgresOutboxRepository(pool),
+      inject: [DataSource],
+      useFactory: (dataSource: DataSource) => new PostgresOutboxRepository(dataSource),
     },
     {
       provide: PublishOutboxUseCase,
-      inject: [PostgresOutboxRepository, SqsEventPublisher],
-      useFactory: (repository: PostgresOutboxRepository, publisher: SqsEventPublisher) => new PublishOutboxUseCase(repository, publisher),
+      inject: [PostgresOutboxRepository, SqsEventPublisher, MetricsRegistry],
+      useFactory: (repository: PostgresOutboxRepository, publisher: SqsEventPublisher, metrics: MetricsRegistry) =>
+        new PublishOutboxUseCase(repository, publisher, 50, metrics),
     },
     {
       provide: OutboxWorker,
@@ -75,13 +84,13 @@ import { DemoController } from './infrastructure/http/demo.controller.js';
     },
     {
       provide: PendingReferenceWorker,
-      inject: [Pool, ProcessWagerUseCase],
-      useFactory: (pool: Pool, useCase: ProcessWagerUseCase) => new PendingReferenceWorker(pool, useCase),
+      inject: [DataSource, ProcessWagerUseCase, MetricsRegistry],
+      useFactory: (dataSource: DataSource, useCase: ProcessWagerUseCase, metrics: MetricsRegistry) => new PendingReferenceWorker(dataSource, useCase, metrics),
     },
     {
       provide: PostgresInboxRepository,
-      inject: [Pool],
-      useFactory: (pool: Pool) => new PostgresInboxRepository(pool),
+      inject: [DataSource],
+      useFactory: (dataSource: DataSource) => new PostgresInboxRepository(dataSource),
     },
     {
       provide: ConsumeInboxUseCase,

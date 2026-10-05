@@ -4,7 +4,7 @@ import type { InboxEvent, InboxRepository, IntegrationEventHandler } from '../sr
 
 const event: InboxEvent = {
   eventId: 'message-1',
-  eventType: 'WAGER_PROCESSED',
+  eventType: 'WagerTransactionProcessed',
   payload: { transactionId: 'tx-1' },
 };
 

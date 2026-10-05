@@ -1,21 +1,22 @@
-import { Pool, type PoolClient } from 'pg';
+import { DataSource, type QueryRunner } from 'typeorm';
 import type { OutboxMessage, OutboxRepository } from '../../application/ports/outbox.port.js';
 
 export class PostgresOutboxRepository implements OutboxRepository {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(private readonly dataSource: DataSource) {}
 
   public async transactional<T>(work: (repository: OutboxRepository) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+    const client = this.dataSource.createQueryRunner();
+    await client.connect();
     try {
-      await client.query('BEGIN');
+      await client.startTransaction();
       const result = await work(new PostgresOutboxTransaction(client));
-      await client.query('COMMIT');
+      await client.commitTransaction();
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.rollbackTransaction();
       throw error;
     } finally {
-      client.release();
+      await client.release();
     }
   }
 
@@ -29,21 +30,15 @@ export class PostgresOutboxRepository implements OutboxRepository {
 }
 
 class PostgresOutboxTransaction implements OutboxRepository {
-  public constructor(private readonly client: PoolClient) {}
+  public constructor(private readonly client: QueryRunner) {}
 
   public async transactional<T>(work: (repository: OutboxRepository) => Promise<T>): Promise<T> {
     return work(this);
   }
 
   public async lockPendingBatch(limit: number): Promise<OutboxMessage[]> {
-    const result = await this.client.query<{
-      id: number;
-      transaction_id: string;
-      wallet_id: string;
-      event_type: string;
-      payload: Record<string, unknown>;
-    }>(
-      `SELECT id, transaction_id, wallet_id, event_type, payload
+    const rows = await this.client.query(
+      `SELECT id, transaction_id, wallet_id, event_type, payload, created_at
        FROM outbox_messages
        WHERE published_at IS NULL
        ORDER BY id
@@ -52,12 +47,15 @@ class PostgresOutboxTransaction implements OutboxRepository {
       [limit],
     );
 
-    return result.rows.map((row) => ({
+    return rows.map((row: {
+      id: number; transaction_id: string; wallet_id: string; event_type: string; payload: Record<string, unknown>; created_at: Date;
+    }) => ({
       id: row.id,
       transactionId: row.transaction_id,
       walletId: row.wallet_id,
       eventType: row.event_type,
       payload: row.payload,
+      createdAt: row.created_at,
     }));
   }
 

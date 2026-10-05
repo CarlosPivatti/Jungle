@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { DataSource } from 'typeorm';
 import { ProcessWagerUseCase } from '../../src/application/use-cases/process-wager.use-case.js';
 import { PostgresWalletUnitOfWork } from '../../src/infrastructure/database/postgres-wallet-unit-of-work.js';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://jungle:jungle@localhost:5432/jungle' });
+const dataSource = new DataSource({ type: 'postgres', url: process.env.DATABASE_URL ?? '******localhost:5432/jungle', entities: [], migrations: [] });
 const walletId = randomUUID();
 const playerId = randomUUID();
 
 describe('financial concurrency', () => {
   beforeAll(async () => {
+    await dataSource.initialize();
     await pool.query(
       `INSERT INTO wallets (id, player_id, currency, balance)
        VALUES ($1, $2, 'BRL', 100.00)`,
@@ -23,10 +26,11 @@ describe('financial concurrency', () => {
     await pool.query('DELETE FROM wager_transactions WHERE wallet_id = $1', [walletId]);
     await pool.query('DELETE FROM wallets WHERE id = $1', [walletId]);
     await pool.end();
+    await dataSource.destroy();
   });
 
   it('serializes 50 concurrent bets without lost updates', async () => {
-    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(pool));
+    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(dataSource));
     const results = await Promise.all(Array.from({ length: 50 }, (_, index) => useCase.execute({
       externalTransactionId: randomUUID(),
       idempotencyKey: `concurrency-${walletId}-${index}`,
@@ -55,7 +59,7 @@ describe('financial concurrency', () => {
   }, 15_000);
 
   it('replays simultaneous requests with the same idempotency key', async () => {
-    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(pool));
+    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(dataSource));
     const request = {
       externalTransactionId: randomUUID(),
       idempotencyKey: `duplicate-${walletId}`,
@@ -80,7 +84,7 @@ describe('financial concurrency', () => {
   }, 15_000);
 
   it('replays fifty simultaneous duplicates as one financial operation', async () => {
-    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(pool));
+    const useCase = new ProcessWagerUseCase(new PostgresWalletUnitOfWork(dataSource));
     const request = {
       externalTransactionId: randomUUID(),
       idempotencyKey: `fifty-duplicate-${walletId}`,
@@ -98,6 +102,10 @@ describe('financial concurrency', () => {
   }, 15_000);
 
   it('serializes work across three independent pool instances', async () => {
+    const ormPools = [new DataSource({ type: 'postgres', url: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/jungle', entities: [], migrations: [] }),
+      new DataSource({ type: 'postgres', url: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/jungle', entities: [], migrations: [] }),
+      new DataSource({ type: 'postgres', url: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/jungle', entities: [], migrations: [] })];
+    await Promise.all(ormPools.map((instance) => instance.initialize()));
     const pools = [new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://jungle:jungle@localhost:5432/jungle' }),
       new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://jungle:jungle@localhost:5432/jungle' }),
       new Pool({ connectionString: process.env.DATABASE_URL ?? 'postgres://jungle:jungle@localhost:5432/jungle' })];
@@ -108,7 +116,7 @@ describe('financial concurrency', () => {
         `INSERT INTO wallets (id, player_id, currency, balance) VALUES ($1, $2, 'BRL', 3.00)`,
         [localWalletId, localPlayerId],
       );
-      const results = await Promise.all(pools.map((instance, index) => new ProcessWagerUseCase(
+      const results = await Promise.all(ormPools.map((instance, index) => new ProcessWagerUseCase(
         new PostgresWalletUnitOfWork(instance),
       ).execute({
         externalTransactionId: randomUUID(),
@@ -129,6 +137,7 @@ describe('financial concurrency', () => {
       await pool.query('DELETE FROM wallets WHERE id = $1', [localWalletId]);
     } finally {
       await Promise.all(pools.map((instance) => instance.end()));
+      await Promise.all(ormPools.map((instance) => instance.destroy()));
     }
   }, 15_000);
 });

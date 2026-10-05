@@ -4,7 +4,7 @@ import type { WagerKind } from '../../application/use-cases/process-wager.use-ca
 
 export class MoneyDto {
   @IsString()
-  @Matches(/^-?\d+(\.\d{1,2})?$/)
+  @Matches(/^\d+(\.\d{1,2})?$/)
   public amount!: string;
 
   @IsString()
@@ -28,6 +28,7 @@ export class ProcessWagerDto {
 
   @IsString()
   @IsNotEmpty()
+  @Matches(/^[a-f0-9]{64}$/i)
   public payloadHash!: string;
 
   @IsString()

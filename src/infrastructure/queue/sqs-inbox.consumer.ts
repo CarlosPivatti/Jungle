@@ -16,7 +16,7 @@ export class SqsInboxConsumer implements OnModuleInit, OnModuleDestroy {
   public constructor(
     private readonly client: SQSClient,
     private readonly queueUrl: string,
-    private readonly consumeInbox: ConsumeInboxUseCase,
+    private readonly consumeInbox: Pick<ConsumeInboxUseCase, 'execute'>,
     private readonly waitTimeSeconds = 10,
   ) {}
 

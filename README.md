@@ -20,18 +20,12 @@ POST /wagers
 
 ## Executar
 
-```bash
-npm install
-npm run typecheck
-npm test
-```
-
-O projeto também pode ser executado com Bun 1.x:
+O fluxo oficial usa Bun 1.x:
 
 ```bash
 bun install
-bun run typecheck
-bun run test:bun
+bun run typecheck:bun
+bun test
 ```
 
 Os testes unitários não dependem de Docker.
@@ -39,7 +33,7 @@ Os testes unitários não dependem de Docker.
 Com o PostgreSQL do Docker em execução, rode também o teste de concorrência:
 
 ```bash
-npm run test:integration
+bun run test:integration
 ```
 
 Esse teste dispara 50 apostas simultâneas e 10 requisições duplicadas com a mesma chave de idempotência.
@@ -50,7 +44,7 @@ Com Docker instalado:
 
 ```bash
 docker compose up -d postgres
-npm run db:migrate
+bun run db:migrate
 ```
 
 Para subir também o SQS local:
@@ -67,14 +61,14 @@ chmod +x docker/localstack/init/ready.d/01-create-queues.sh
 
 O LocalStack cria a fila `wager-events`. A aplicação usa automaticamente o endpoint local e `SQS_QUEUE_URL=http://localhost:4566/000000000000/wager-events` por padrão. Em AWS, defina `SQS_QUEUE_URL` e `AWS_REGION` com os valores do ambiente.
 
-O schema em `src/infrastructure/database/schema.sql` é aplicado automaticamente na primeira criação do volume. Para ambientes persistentes, use as migrations versionadas com `npm run db:migrate`; o runner faz baseline automático quando encontra o schema já criado pelo Docker. A conexão padrão é `postgres://jungle:jungle@localhost:5432/jungle`.
+O schema em `src/infrastructure/database/schema.sql` é aplicado automaticamente na primeira criação do volume. Para ambientes persistentes, use as migrations versionadas com `bun run db:migrate`; o runner faz baseline automático quando encontra o schema já criado pelo Docker. A conexão padrão é `postgres://jungle:jungle@localhost:5432/jungle`.
 
 ## API
 
 Com o banco disponível, inicie a aplicação:
 
 ```bash
-npm start
+bun run start
 ```
 
 Copie `.env.example` para `.env` apenas se quiser sobrescrever os valores padrão. O endpoint `POST /wagers` recebe `externalTransactionId`, `idempotencyKey`, `payloadHash`, `walletId`, `roundId`, `gameId`, `kind` e `money`. Quando `API_KEY` estiver definida, envie-a no header `x-api-key`.
@@ -117,7 +111,7 @@ Health checks: `GET /health/live` confirma que o processo está vivo; `GET /heal
 - `SELECT FOR UPDATE`: serializa operações da mesma carteira e permite concorrência entre carteiras diferentes.
 - Outbox transacional: o evento só é criado se a atualização financeira também for confirmada.
 - Inbox idempotente: eventos repetidos não executam o handler novamente.
-- `LOSS` gera lançamento de auditoria sem alterar o saldo.
+- `LOSS` não gera lançamento financeiro e não altera o saldo.
 - `REFUND` exige referência para uma `BET`; `ROLLBACK` exige referência para
   `BET`, `WIN` ou `REFUND`. Referências ausentes ficam em `PENDING_REFERENCE`
   e são reprocessadas com backoff.
@@ -126,7 +120,8 @@ Health checks: `GET /health/live` confirma que o processo está vivo; `GET /heal
 
 - `src/domain`: regras puras de dinheiro e carteira.
 - `src/application`: casos de uso e portas de saída.
-- `src/infrastructure/database`: schema PostgreSQL, unit of work e repositório Outbox.
+- `src/infrastructure/database`: schema PostgreSQL, TypeORM `DataSource`/`QueryRunner`,
+  unit of work e repositório Outbox.
 - `src/infrastructure/queue`: worker de polling da Outbox.
 - `tests`: comportamento do domínio e do processamento de apostas.
 
@@ -134,18 +129,30 @@ Health checks: `GET /health/live` confirma que o processo está vivo; `GET /heal
 
 | Comando | Uso |
 | --- | --- |
-| `npm test` | Testes unitários e de contrato HTTP, sem Docker |
-| `npm run test:integration` | Teste real de concorrência no PostgreSQL |
-| `npm run typecheck` | Verificação TypeScript |
-| `npm run db:migrate` | Executa migrations pendentes |
-| `npm start` | Inicia a API |
+| `bun test` | Testes unitários e de contrato HTTP, sem Docker |
+| `bun run test:integration` | Teste real de concorrência no PostgreSQL |
+| `bun run typecheck:bun` | Verificação TypeScript |
+| `bun run db:migrate` | Executa migrations pendentes |
+| `bun run start` | Inicia a API |
+
+O teste `tests/integration/three-processes.integration.spec.ts` inicia três
+processos Node independentes contra a mesma carteira. Execute a suíte de
+integração com PostgreSQL disponível para validar esse cenário.
+
+O endpoint `/metrics` expõe contadores por status/tipo, duplicatas, retries,
+falhas, latência de processamento, latência do Inbox e atraso da outbox em
+formato Prometheus.
 
 ## Escopo e limitações
 
 Este repositório é uma solução de teste técnico local. O SQS configurado no Docker é o LocalStack. Em produção, devem ser usados credenciais gerenciadas, métricas e tracing centralizados, além de políticas de segurança e rate limiting adequadas.
 
-A implementação mantém a infraestrutura fora do domínio. `PostgresWalletUnitOfWork` usa `SELECT FOR UPDATE`, `BEGIN/COMMIT/ROLLBACK`, constraint única para `idempotency_key` e gravação de wallet, ledger e outbox na mesma transação.
+A implementação mantém a infraestrutura fora do domínio. `PostgresWalletUnitOfWork`
+usa TypeORM `QueryRunner` com SQL parametrizado para preservar `SELECT FOR UPDATE`,
+`BEGIN/COMMIT/ROLLBACK`, constraint única para `idempotency_key` e gravação de
+wallet, ledger e outbox na mesma transação. Falhas técnicas são persistidas como
+`FAILED` em uma transação de compensação, com `failureCode` e evento outbox.
 
 O `PostgresOutboxRepository` reserva lotes com `FOR UPDATE SKIP LOCKED`. A publicação é at-least-once: se a publicação ocorrer e o commit falhar, a mensagem poderá ser republicada. Consumidores devem tratar o `transactionId` como chave idempotente.
 
-O contrato de Inbox grava cada `eventId` uma única vez em `inbox_messages` antes de chamar o handler. Eventos duplicados são ignorados sem executar o handler novamente. Falhas não são confirmadas no SQS; a fila aplica retry e encaminha mensagens excedentes para a DLQ configurada no LocalStack.
+O contrato de Inbox grava cada `eventId` uma única vez em `inbox_messages` antes de chamar o handler. Eventos duplicados são ignorados sem executar o handler novamente. Falhas não são confirmadas no SQS; a fila aplica retry e encaminha mensagens excedentes para a DLQ configurada no LocalStack. O teste `inbox-redelivery.spec.ts` cobre a falha entre commit do Inbox e ACK do SQS.

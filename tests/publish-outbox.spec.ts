@@ -16,9 +16,9 @@ function createHarness(messages: OutboxMessage[]) {
 }
 
 const messages: OutboxMessage[] = [
-  { id: 1, transactionId: 'tx-1', walletId: 'wallet-1', eventType: 'WAGER_BET', payload: { amount: '10.00' } },
-  { id: 2, transactionId: 'tx-2', walletId: 'wallet-1', eventType: 'WAGER_WIN', payload: { amount: '20.00' } },
-  { id: 3, transactionId: 'tx-3', walletId: 'wallet-1', eventType: 'WAGER_REFUND', payload: { amount: '5.00' } },
+  { id: 1, transactionId: 'tx-1', walletId: 'wallet-1', eventType: 'WagerTransactionProcessed', payload: { amount: '10.00' } },
+  { id: 2, transactionId: 'tx-2', walletId: 'wallet-1', eventType: 'WalletBalanceChanged', payload: { amount: '20.00' } },
+  { id: 3, transactionId: 'tx-3', walletId: 'wallet-1', eventType: 'WagerTransactionProcessed', payload: { amount: '5.00' } },
 ];
 
 describe('PublishOutboxUseCase', () => {

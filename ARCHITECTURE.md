@@ -10,15 +10,17 @@
 
 ## Consistência financeira
 
-`ProcessWagerUseCase` bloqueia a linha da carteira com `SELECT FOR UPDATE`. A
+`ProcessWagerUseCase` bloqueia a linha da carteira com `SELECT FOR UPDATE` por
+meio de um TypeORM `QueryRunner`. A
 atualização da carteira, o registro da transação, o lançamento imutável do
 ledger e o registro da outbox são confirmados em uma única transação do
 PostgreSQL. Uma operação com falha desfaz as quatro alterações.
 
 O dinheiro é representado como texto decimal nas fronteiras da aplicação,
-`decimal.js` no domínio e `NUMERIC(18,2)` no PostgreSQL. `LOSS` registra um
-lançamento de auditoria sem alterar o saldo. `REFUND` e `ROLLBACK` exigem uma
-referência válida e não podem reutilizar a mesma transação referenciada.
+`decimal.js` no domínio e `NUMERIC(18,2)` no PostgreSQL. `LOSS` não gera
+lançamento financeiro e não altera o saldo. `REFUND` e `ROLLBACK` exigem uma
+referência válida e não podem repetir o mesmo tipo de reversão. Falhas técnicas
+são registradas como `FAILED` com `failureCode`.
 
 ## Idempotência e ordenação
 
@@ -42,8 +44,9 @@ O payload do evento usa os campos de envelope `eventId`, `eventType`,
 
 ## Trade-offs e limitações
 
-O repositório usa diretamente o driver `pg`, em vez de um ORM, para manter
-explícitos os limites das transações e os bloqueios de linhas. O desenvolvimento
-local usa o LocalStack; implantações em produção devem fornecer credenciais
-gerenciadas, métricas, tracing, logs estruturados, políticas de retry/DLQ e um
-handler de eventos de negócio completo.
+O núcleo financeiro usa TypeORM com `QueryRunner` e SQL parametrizado para
+manter explícitos os limites das transações e os bloqueios de linhas. Adaptadores
+legados de leitura e workers ainda usam o pool PostgreSQL enquanto são migrados
+gradualmente. O desenvolvimento local usa o LocalStack; implantações em
+produção devem fornecer credenciais gerenciadas, métricas, tracing, logs
+estruturados, políticas de retry/DLQ e um handler de eventos de negócio completo.

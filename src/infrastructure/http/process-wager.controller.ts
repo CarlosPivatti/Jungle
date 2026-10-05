@@ -28,7 +28,7 @@ export class ProcessWagerController {
       const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
       if (errors.length > 0) throw new BadRequestException(errors);
       const computedPayloadHash = canonicalPayloadHash(body);
-      if (/^[a-f0-9]{64}$/i.test(dto.payloadHash) && dto.payloadHash.toLowerCase() !== computedPayloadHash) {
+      if (dto.payloadHash.toLowerCase() !== computedPayloadHash) {
         throw new ConflictException('PAYLOAD_HASH_MISMATCH');
       }
       return await this.processWager.execute(dto);

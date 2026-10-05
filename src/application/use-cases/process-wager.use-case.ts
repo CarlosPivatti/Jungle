@@ -22,6 +22,7 @@ export interface ProcessWagerOutput {
   transactionId: string;
   status: 'PENDING_REFERENCE' | 'PROCESSED' | 'REJECTED' | 'FAILED';
   balance: { amount: string; currency: string };
+  failureCode?: string | undefined;
   idempotentReplay: boolean;
 }
 
@@ -32,7 +33,9 @@ export class ProcessWagerUseCase {
   ) {}
 
   public async execute(input: ProcessWagerInput): Promise<ProcessWagerOutput> {
-    return this.unitOfWork.transactional(async (context) => {
+    const startedAt = performance.now();
+    try {
+      return await this.unitOfWork.transactional(async (context) => {
       const providerId = input.providerId ?? 'default-provider';
       const existing = await context.findTransactionByIdempotencyKey(input.idempotencyKey);
       if (existing) {
@@ -43,6 +46,7 @@ export class ProcessWagerUseCase {
             transactionId: existing.id,
             status: existing.status,
             balance: existing.balance,
+            failureCode: existing.failureCode,
             idempotentReplay: true,
           };
         }
@@ -60,6 +64,7 @@ export class ProcessWagerUseCase {
             transactionId: transactionAfterLock.id,
             status: transactionAfterLock.status,
             balance: transactionAfterLock.balance,
+            failureCode: transactionAfterLock.failureCode,
             idempotentReplay: true,
           };
         }
@@ -80,6 +85,7 @@ export class ProcessWagerUseCase {
             transactionId: transactionAfterLock.id,
             status: transactionAfterLock.status,
             balance: transactionAfterLock.balance,
+            failureCode: transactionAfterLock.failureCode,
             idempotentReplay: true,
           };
         }
@@ -101,6 +107,12 @@ export class ProcessWagerUseCase {
           status: 'PENDING_REFERENCE',
           balance: pendingBalance,
         });
+        await context.enqueueOutbox({
+          transactionId: pendingId,
+          walletId: wallet.id,
+          kind: input.kind,
+          status: 'PENDING_REFERENCE',
+        });
         return { transactionId: pendingId, status: 'PENDING_REFERENCE', balance: pendingBalance, idempotentReplay: false };
       }
       if (reference) {
@@ -119,20 +131,55 @@ export class ProcessWagerUseCase {
       const rollbackDebit = input.kind === 'ROLLBACK'
         && reference !== undefined
         && ['WIN', 'REFUND'].includes(reference.kind);
-      switch (input.kind) {
-        case 'BET':
-          wallet.debit(amount);
-          break;
-        case 'WIN':
-        case 'REFUND':
-          wallet.credit(amount);
-          break;
-        case 'ROLLBACK':
-          if (rollbackDebit) wallet.debit(amount);
-          else wallet.credit(amount);
-          break;
-        case 'LOSS':
-          break;
+      try {
+        switch (input.kind) {
+          case 'BET':
+            wallet.debit(amount);
+            break;
+          case 'WIN':
+          case 'REFUND':
+            wallet.credit(amount);
+            break;
+          case 'ROLLBACK':
+            if (rollbackDebit) wallet.debit(amount);
+            else wallet.credit(amount);
+            break;
+          case 'LOSS':
+            break;
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'INSUFFICIENT_FUNDS') throw error;
+        const transactionId = transactionAfterLock?.id ?? randomUUID();
+        const rejected: StoredTransaction = {
+          id: transactionId,
+          providerId,
+          externalTransactionId: input.externalTransactionId,
+          idempotencyKey: input.idempotencyKey,
+          payloadHash: input.payloadHash,
+          walletId: input.walletId,
+          playerId: wallet.playerId,
+          roundId: input.roundId,
+          gameId: input.gameId,
+          kind: input.kind,
+          money: input.money,
+          referenceExternalTransactionId: input.referenceExternalTransactionId,
+          status: 'REJECTED',
+          failureCode: 'INSUFFICIENT_FUNDS',
+          balance: balanceBefore,
+        };
+        if (transactionAfterLock && context.updateTransaction) await context.updateTransaction(rejected);
+        else await context.saveTransaction(rejected);
+        await context.enqueueOutbox({ transactionId, walletId: wallet.id, kind: input.kind, status: 'REJECTED' });
+        this.metrics?.increment('wager_rejected_total');
+        this.metrics?.increment('wager_transactions_total', { status: 'REJECTED', kind: input.kind });
+        this.metrics?.observe('wager_processing_duration_seconds', (performance.now() - startedAt) / 1000, { kind: input.kind });
+        return {
+          transactionId,
+          status: 'REJECTED',
+          failureCode: 'INSUFFICIENT_FUNDS',
+          balance: balanceBefore,
+          idempotentReplay: false,
+        };
       }
 
       const transactionId = transactionAfterLock?.id ?? randomUUID();
@@ -159,18 +206,65 @@ export class ProcessWagerUseCase {
       } else {
         await context.saveTransaction(transaction);
       }
-      await context.appendLedgerEntry({
-        transactionId,
-        walletId: wallet.id,
-        amount: input.kind === 'LOSS' ? '0.00' : input.money.amount,
-        currency: amount.currency,
-        kind: input.kind,
-        balanceBefore,
-        balanceAfter: balance,
-      });
-      await context.enqueueOutbox({ transactionId, walletId: wallet.id, kind: input.kind });
+      if (input.kind !== 'LOSS') {
+        await context.appendLedgerEntry({
+          transactionId,
+          walletId: wallet.id,
+          amount: input.money.amount,
+          currency: amount.currency,
+          kind: input.kind,
+          balanceBefore,
+          balanceAfter: balance,
+        });
+      }
+      await context.enqueueOutbox({ transactionId, walletId: wallet.id, kind: input.kind, status: 'PROCESSED' });
+      this.metrics?.increment('wager_processed_total');
+      this.metrics?.increment('wager_transactions_total', { status: 'PROCESSED', kind: input.kind });
+      this.metrics?.observe('wager_processing_duration_seconds', (performance.now() - startedAt) / 1000, { kind: input.kind });
 
       return { transactionId, status: 'PROCESSED', balance, idempotentReplay: false };
-    });
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'UNKNOWN_FAILURE';
+      const nonFailureCodes = new Set([
+        'IDEMPOTENCY_PAYLOAD_MISMATCH', 'WALLET_NOT_FOUND', 'INSUFFICIENT_FUNDS',
+      ]);
+      const rejectedCodes = new Set(['REFERENCE_REQUIRED', 'INVALID_REFERENCE', 'REFERENCE_AMOUNT_MISMATCH']);
+      if (this.unitOfWork.recordRejectedTransaction && rejectedCodes.has(code)) {
+        const rejected = await this.unitOfWork.recordRejectedTransaction({
+          ...input,
+          providerId: input.providerId ?? 'default-provider',
+          failureCode: code,
+        });
+        this.metrics?.increment('wager_rejected_total');
+        this.metrics?.increment('wager_transactions_total', { status: 'REJECTED', kind: input.kind });
+        this.metrics?.observe('wager_processing_duration_seconds', (performance.now() - startedAt) / 1000, { kind: input.kind });
+        return {
+          transactionId: rejected.id,
+          status: 'REJECTED',
+          failureCode: rejected.failureCode,
+          balance: rejected.balance,
+          idempotentReplay: false,
+        };
+      }
+      if (this.unitOfWork.recordFailedTransaction && !nonFailureCodes.has(code)) {
+        const failed = await this.unitOfWork.recordFailedTransaction({
+          ...input,
+          providerId: input.providerId ?? 'default-provider',
+          failureCode: code,
+        });
+        this.metrics?.increment('wager_failed_total');
+        this.metrics?.increment('wager_transactions_total', { status: 'FAILED', kind: input.kind });
+        this.metrics?.observe('wager_processing_duration_seconds', (performance.now() - startedAt) / 1000, { kind: input.kind });
+        return {
+          transactionId: failed.id,
+          status: 'FAILED',
+          failureCode: failed.failureCode,
+          balance: failed.balance,
+          idempotentReplay: false,
+        };
+      }
+      throw error;
+    }
   }
 }

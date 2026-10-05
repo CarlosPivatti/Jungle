@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import { DataSource, type QueryRunner } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { Wallet } from '../../domain/entities/wallet.entity.js';
 import { Money } from '../../domain/value-objects/money.vo.js';
@@ -9,37 +9,77 @@ import type {
 } from '../../application/ports/wallet-unit-of-work.port.js';
 
 export class PostgresWalletUnitOfWork implements WalletUnitOfWork {
-  public constructor(private readonly pool: Pool) {}
+  public constructor(private readonly dataSource: DataSource) {}
 
   public async transactional<T>(work: (context: WalletTransactionContext) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
     try {
-      await client.query('BEGIN');
-      const result = await work(new PostgresWalletTransactionContext(client));
-      await client.query('COMMIT');
+      await runner.startTransaction();
+      const result = await work(new PostgresWalletTransactionContext(runner));
+      await runner.commitTransaction();
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await runner.rollbackTransaction();
       throw error;
     } finally {
-      client.release();
+      await runner.release();
     }
+  }
+
+  public async recordFailedTransaction(input: Parameters<NonNullable<WalletUnitOfWork['recordFailedTransaction']>>[0]): Promise<StoredTransaction> {
+    return this.recordTerminalTransaction(input, 'FAILED');
+  }
+
+  public async recordRejectedTransaction(input: Parameters<NonNullable<WalletUnitOfWork['recordRejectedTransaction']>>[0]): Promise<StoredTransaction> {
+    return this.recordTerminalTransaction(input, 'REJECTED');
+  }
+
+  private async recordTerminalTransaction(
+    input: Parameters<NonNullable<WalletUnitOfWork['recordFailedTransaction']>>[0],
+    status: 'FAILED' | 'REJECTED',
+  ): Promise<StoredTransaction> {
+    return this.transactional(async (context) => {
+        const existing = await context.findTransactionByIdempotencyKey(input.idempotencyKey);
+        if (existing) return existing;
+        const wallet = await context.findWalletForUpdate(input.walletId);
+        const balance = wallet?.balance.toJSON() ?? { amount: '0.00', currency: input.money.currency };
+        const transaction: StoredTransaction = {
+          id: randomUUID(),
+          providerId: input.providerId,
+          externalTransactionId: input.externalTransactionId,
+          idempotencyKey: input.idempotencyKey,
+          payloadHash: input.payloadHash,
+          walletId: input.walletId,
+          playerId: wallet?.playerId ?? '00000000-0000-0000-0000-000000000000',
+          roundId: input.roundId,
+          gameId: input.gameId,
+          kind: input.kind,
+          money: input.money,
+          referenceExternalTransactionId: input.referenceExternalTransactionId,
+          status,
+          failureCode: input.failureCode,
+          balance,
+        };
+        await context.saveTransaction(transaction);
+        await context.enqueueOutbox({
+          transactionId: transaction.id,
+          walletId: transaction.walletId,
+          kind: transaction.kind,
+          status,
+        });
+        return transaction;
+    });
   }
 }
 
 class PostgresWalletTransactionContext implements WalletTransactionContext {
   private lockedWalletId: string | undefined;
 
-  public constructor(private readonly client: PoolClient) {}
+  public constructor(private readonly client: QueryRunner) {}
 
   public async findTransactionByIdempotencyKey(key: string): Promise<StoredTransaction | undefined> {
-    const result = await this.client.query<{
-      id: string; provider_id: string; external_transaction_id: string; idempotency_key: string; payload_hash: string;
-      wallet_id: string; player_id: string; round_id: string; game_id: string; kind: string;
-      money_amount: string; money_currency: string; reference_external_transaction_id: string | null;
-      status: 'PENDING_REFERENCE' | 'PROCESSED' | 'REJECTED' | 'FAILED';
-      failure_code: string | null; balance_amount: string; balance_currency: string;
-    }>(
+    const result = await this.query(
       `SELECT id, provider_id, external_transaction_id, idempotency_key, payload_hash, wallet_id, player_id,
               round_id, game_id, kind, money_amount, money_currency, reference_external_transaction_id,
               status, failure_code, balance_amount, balance_currency
@@ -67,7 +107,7 @@ class PostgresWalletTransactionContext implements WalletTransactionContext {
   }
 
   public async findTransactionByExternalReference(providerId: string, externalTransactionId: string): Promise<StoredTransaction | undefined> {
-    const result = await this.client.query(
+    const result = await this.query(
       `SELECT id, provider_id, external_transaction_id, idempotency_key, payload_hash, wallet_id,
               player_id, round_id, game_id, kind, money_amount, money_currency,
               reference_external_transaction_id, status, balance_amount, balance_currency
@@ -96,10 +136,7 @@ class PostgresWalletTransactionContext implements WalletTransactionContext {
   }
 
   public async findWalletForUpdate(walletId: string): Promise<Wallet | undefined> {
-    const result = await this.client.query<{
-      id: string; player_id: string; currency: string; balance: string; version: number;
-      created_at: Date; updated_at: Date;
-    }>(
+    const result = await this.query(
       `SELECT id, player_id, currency, balance, version, created_at, updated_at
        FROM wallets WHERE id = $1 FOR UPDATE`, [walletId],
     );
@@ -166,10 +203,16 @@ class PostgresWalletTransactionContext implements WalletTransactionContext {
     );
   }
 
-  public async enqueueOutbox(event: { transactionId: string; walletId: string; kind: string }): Promise<void> {
+  public async enqueueOutbox(event: { transactionId: string; walletId: string; kind: string; status: 'PENDING_REFERENCE' | 'PROCESSED' | 'REJECTED' | 'FAILED' }): Promise<void> {
     const eventPayload = {
       eventId: randomUUID(),
-      eventType: `WAGER_${event.kind}`,
+      eventType: event.status === 'PROCESSED'
+        ? 'WagerTransactionProcessed'
+        : event.status === 'REJECTED'
+              ? 'WagerTransactionRejected'
+              : event.status === 'FAILED'
+                ? 'WagerTransactionFailed'
+                : 'WagerTransactionPendingReference',
       aggregateId: event.walletId,
       correlationId: event.transactionId,
       causationId: event.transactionId,
@@ -177,7 +220,10 @@ class PostgresWalletTransactionContext implements WalletTransactionContext {
       version: 1,
       data: event,
     };
-    for (const eventType of [eventPayload.eventType, 'WalletBalanceChanged']) {
+    const eventTypes = event.status === 'PROCESSED'
+      ? [eventPayload.eventType, 'WalletBalanceChanged']
+      : [eventPayload.eventType];
+    for (const eventType of eventTypes) {
       const payload = { ...eventPayload, eventId: randomUUID(), eventType };
       await this.client.query(
         `INSERT INTO outbox_messages (transaction_id, wallet_id, event_type, payload)
@@ -190,5 +236,10 @@ class PostgresWalletTransactionContext implements WalletTransactionContext {
   private get walletId(): string {
     if (!this.lockedWalletId) throw new Error('Wallet must be locked before saving a transaction');
     return this.lockedWalletId;
+  }
+
+  private async query(sql: string, parameters: unknown[] = []): Promise<{ rows: any[]; rowCount: number }> {
+    const rows = await this.client.query(sql, parameters) as any[];
+    return { rows, rowCount: rows.length };
   }
 }
